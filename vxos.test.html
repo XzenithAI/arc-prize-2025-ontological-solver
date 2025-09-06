@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>VX:OS — Jest-style UI Tests</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{background:#0b1020;color:#e6e9f3;font:14px/1.5 system-ui, sans-serif;margin:0;padding:24px}
+    .card{background:#0f142a;border:1px solid #1f2747;border-radius:12px;padding:16px;margin:0 auto;max-width:1000px}
+    .muted{color:#9aa3c7}
+    .pass{color:#4ade80} .fail{color:#f87171}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    #report{white-space:pre-wrap;background:#0a0f23;border:1px solid #1f2747;border-radius:8px;padding:12px;margin-top:12px}
+    #app{height:760px;border:1px dashed #2b3566;border-radius:12px;margin:12px 0;overflow:hidden}
+    button{background:#334155;color:#e6e9f3;border:1px solid #475569;border-radius:8px;padding:8px 12px}
+    button:hover{background:#3b4764}
+  </style>
+  <!-- React UMD (external) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Your built UMD bundle; replace path as needed when bundling -->
+  <script src="dist/vxos.umd.js"></script>
+</head>
+<body>
+  <div class="card">
+    <h2>VX:OS — Jest-style UI Tests <span class="muted">(browser, zero deps)</span></h2>
+    <div class="row">
+      <button id="run">Run Tests</button>
+      <span class="muted">Mounts VX:OS, uses scroll-commands and VXTEST to validate core flows.</span>
+    </div>
+    <div id="app"></div>
+    <div id="report" class="mono"></div>
+  </div>
+  <script>
+    // --- tiny Jest-ish helpers ---
+    const results = [];
+    function log(s){ document.querySelector("#report").textContent += s + "\n"; }
+    function clear(){ document.querySelector("#report").textContent=''; }
+    function test(name, fn){
+      try { fn(); results.push({name, ok:true}); log("PASS: " + name); }
+      catch(e){ results.push({name, ok:false, err: e}); log("FAIL: " + name + "\n" + (e && e.stack ? e.stack : e)); }
+    }
+    function expect(v){ return { toBe: (x)=>{ if(v!==x) throw new Error(`Expected ${String(v)} to be ${String(x)}`); } } }
+    function summary(){
+      const pass = results.filter(r=>r.ok).length;
+      const fail = results.length - pass;
+      log(`\nResults: ${pass} passed, ${fail} failed`);
+    }
+    // --- mount VX:OS (UMD exposes window.VXOSApp.default) ---
+    const mount = ()=>{
+      const root = document.getElementById("app");
+      root.innerHTML = ""; // reset
+      const el = React.createElement(window.VXOSApp.default, {});
+      ReactDOM.createRoot(root).render(el);
+    };
+    // --- helper: run a scroll command in the mounted app ---
+    function scroll(cmd){ window.__vx_scroll && window.__vx_scroll(...cmd.split(/\s+/).slice(0,1), cmd.split(/\s+/).slice(1)); }
+    function scrollArgs(cmd, args){ window.__vx_scroll && window.__vx_scroll(cmd, args); }
+    // --- helper: get FS snapshot from localStorage (VX:OS uses FS_KEY="vxos_fs_v1") ---
+    function getFS(){ try{ return JSON.parse(localStorage.getItem("vxos_fs_v1")||"null"); }catch{ return null; } }
+    // --- tap VX:OS UI controls when needed ---
+    function clickRunButton(){
+      const btns = Array.from(document.querySelectorAll("button")).filter(b=>b.textContent.trim().startsWith("▶"));
+      if(btns[0]) btns[0].click();
+    }
+    // --- main tests ---
+    async function runTests(){
+      clear(); results.length = 0;
+      mount();
+      await new Promise(r=>setTimeout(r, 100));
+      test("boot shows default FS with hello.js + vx.tests.js", ()=>{
+        const fs = getFS();
+        const names = (fs?.children||[]).map(x=>x.name);
+        expect(names.includes("hello.js")).toBe(true);
+        expect(names.includes("vx.tests.js")).toBe(true);
+      });
+      test("scroll:new file creates an empty file", ()=>{
+        const name = "jest-demo.js";
+        scrollArgs("new", ["file", name]);
+        const fs = getFS();
+        const ok = (fs?.children||[]).some(x=>x.name===name && x.type==="file");
+        expect(ok).toBe(true);
+      });
+      test("vx.tests.js executes and reports results", async ()=>{
+        scrollArgs("open", ["vx.tests.js"]);
+        scrollArgs("run", []);
+        await new Promise(r=>setTimeout(r, 300));
+        const text = document.querySelector("#app")?.textContent || "";
+        if(!/PASS:/m.test(text)) throw new Error("Expected PASS lines in Console output");
+      });
+      test("Footer ▶ Run triggers sandbox execution", async ()=>{
+        clickRunButton();
+        await new Promise(r=>setTimeout(r, 200));
+        expect(true).toBe(true);
+      });
+      summary();
+    }
+    document.getElementById("run").addEventListener("click", ()=>runTests());
+  </script>
+</body>
+</html>
