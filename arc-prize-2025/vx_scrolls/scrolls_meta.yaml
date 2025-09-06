@@ -1,0 +1,12 @@
+rotate_demo:
+  scroll:
+    - op: ROT90
+      k: 1
+recolor_flip_demo:
+  scroll:
+    - op: REMAP
+      mapping:
+        1: 2
+        2: 1
+    - op: FLIP
+      axis: 1
